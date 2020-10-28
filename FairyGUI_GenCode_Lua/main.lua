@@ -1,130 +1,20 @@
---region LuaCodeWriter
-local LuaCodeWriter = fclass()
-
-function LuaCodeWriter:ctor(config)
-    config = config or {}
-    self.blockStart = config.blockStart or '{'
-    self.blockEnd = config.blockEnd or '}'
-    self.blockFromNewLine = config.blockFromNewLine
-    if self.blockFromNewLine == nil then
-        self.blockFromNewLine = true
-    end
-    if config.usingTabs then
-        self.indentStr = '\t'
-    else
-        self.indentStr = '    '
-    end
-    self.usingTabs = config.usingTabs
-    self.endOfLine = config.endOfLine or '\n'
-    self.lines = {}
-    self.indent = 0
-
-    self:writeMark()
-end
-
-function LuaCodeWriter:writeMark()
-    table.insert(self.lines, '--- This is an automatically generated class by FairyGUI. Please do not modify it. ---')
-    table.insert(self.lines, '')
-end
-
-function LuaCodeWriter:writeln(format, ...)
-    if not format then
-        table.insert(self.lines, '')
-        return
-    end
-
-    local str = ''
-    for i = 0, self.indent - 1 do
-        str = str .. self.indentStr
-    end
-    str = str .. string.format(format, ...)
-    table.insert(self.lines, str)
-
-    return self
-end
-
-function LuaCodeWriter:startBlock()
-    if self.blockFromNewLine or #self.lines == 0 then
-        self:writeln(self.blockStart)
-    else
-        local str = self.lines[#self.lines]
-        self.lines[#self.lines] = str .. ' ' .. self.blockStart
-    end
-    self.indent = self.indent + 1
-
-    return self
-end
-
-function LuaCodeWriter:endBlock()
-    self.indent = self.indent - 1
-    self:writeln(self.blockEnd)
-
-    return self
-end
-
-function LuaCodeWriter:incIndent()
-    self.indent = self.indent + 1
-
-    return self
-end
-
-function LuaCodeWriter:decIndent()
-    self.indent = self.indent - 1
-
-    return self
-end
-
-function LuaCodeWriter:reset()
-    if #self.lines > 0 then
-        self.lines = {}
-    end
-    self.indent = 0
-
-    self:writeMark()
-end
-
-function LuaCodeWriter:tostring()
-    return table.concat(self.lines, self.endOfLine)
-end
-
-function LuaCodeWriter:save(filePath)
-    local str = table.concat(self.lines, self.endOfLine)
-
-    CS.System.IO.File.WriteAllText(filePath, str)
-end
-
---endregion
-
-local projectCustomPropertiesDic;
-
-local customPropKeys = {
-    key_gen_lua = { name = "key_gen_lua", default_value = "true" },
-    key_lua_file_extension_name = { name = "key_lua_file_extension_name", default_value = "lua" },
-    key_lua_path_root = { name = "key_lua_path_root", default_value = "UIGenCode/" },
-    key_wrapper_namespace = { name = "key_wrapper_namespace", default_value = "CS.FairyGUI" },
-}
-
-local function get_project_custom_property_value(key_name)
-    if (projectCustomPropertiesDic and projectCustomPropertiesDic:ContainsKey(key_name)) then
-        return projectCustomPropertiesDic:get_Item(key_name);
-    else
-        return customPropKeys[key_name].default_value;
-    end
-end
+local genCocosLua = require(PluginPath.."/genCocosLua")
+local genUnityLua = require(PluginPath.."/genUnityLua")
 
 function onPublish(handler)
     if not handler.genCode or handler.publishDescOnly then
         return
     end
 
-    projectCustomPropertiesDic = App.project:GetSettings("CustomProperties").elements;
-
-    local gen_lua = get_project_custom_property_value(customPropKeys.key_gen_lua.name);
-    if (gen_lua == "true") then
-        handler.genCode = false --prevent default output
-        App.consoleView:Clear();
-        fprint("Handling gen lua code in plugin.")
-        genCode(handler)
+    handler.genCode = false --prevent default output
+    App.consoleView:Clear()
+    fprint("Handling gen lua code in plugin.")
+    if App.project.type == ProjectType.Cocos2dx then
+        genCocosLua(handler)
+    elseif App.project.type == ProjectType.Unity then
+        genUnityLua(handler)
+    else
+        fprint("not supported yet.")
     end
 end
 
@@ -149,10 +39,10 @@ function genCode(handler)
     handler:SetupCodeFolder(exportCodePath, lua_file_extension_name) --check if target folder exists, and delete old files
 
     local getMemberByName = settings.getMemberByName
-    local classTemplateTxt = CS.System.IO.File.ReadAllText(PluginPath .. "/component_template.txt");
+    local classTemplateTxt = CS.System.IO.File.ReadAllText(PluginPath .. "/component_template.txt")
     if (classTemplateTxt == "") then
         fprint("component_template.txt content null.")
-        return ;
+        return
     end
 
     local classCnt = classes.Count
@@ -165,11 +55,11 @@ function genCode(handler)
 
         _classTemplateTxt = string.gsub(_classTemplateTxt, "$className", classInfo.className);
         _classTemplateTxt = string.gsub(_classTemplateTxt, "$superClassName", classInfo.superClassName);
-        if (key_wrapper_namespace ~= "") then
-            _classTemplateTxt = string.gsub(_classTemplateTxt, "$namespace", key_wrapper_namespace .. ".");
-        else
-            _classTemplateTxt = string.gsub(_classTemplateTxt, "$namespace", "");
-        end
+        -- if (key_wrapper_namespace ~= "") then
+        --     _classTemplateTxt = string.gsub(_classTemplateTxt, "$namespace", key_wrapper_namespace .. ".");
+        -- else
+        --     _classTemplateTxt = string.gsub(_classTemplateTxt, "$namespace", "");
+        -- end
 
         local _classFieldAnnotation = string.format('---@field public %s %s\n', "__ui", classInfo.superClassName);
         local memberCnt = members.Count
@@ -198,21 +88,21 @@ function genCode(handler)
             _classFieldInstatiation = _classFieldInstatiation .. "\t";
             if memberInfo.group == 0 then
                 if getMemberByName then
-                    _classFieldInstatiation = _classFieldInstatiation .. string.format('self.%s = self.__ui:GetChild("%s");', memberInfo.varName, memberInfo.name);
+                    _classFieldInstatiation = _classFieldInstatiation .. string.format('self.%s = self:GetChild("%s");', memberInfo.varName, memberInfo.name);
                 else
-                    _classFieldInstatiation = _classFieldInstatiation .. string.format('self.%s = self.__ui:GetChildAt("%s");', memberInfo.varName, memberInfo.index);
+                    _classFieldInstatiation = _classFieldInstatiation .. string.format('self.%s = self:GetChildAt("%s");', memberInfo.varName, memberInfo.index);
                 end
             elseif memberInfo.group == 1 then
                 if getMemberByName then
-                    _classFieldInstatiation = _classFieldInstatiation .. string.format('self.%s = self.__ui:GetController("%s");', memberInfo.varName, memberInfo.name);
+                    _classFieldInstatiation = _classFieldInstatiation .. string.format('self.%s = self:GetController("%s");', memberInfo.varName, memberInfo.name);
                 else
-                    _classFieldInstatiation = _classFieldInstatiation .. string.format('self.%s = self.__ui:GetControllerAt("%s");', memberInfo.varName, memberInfo.index);
+                    _classFieldInstatiation = _classFieldInstatiation .. string.format('self.%s = self:GetControllerAt("%s");', memberInfo.varName, memberInfo.index);
                 end
             else
                 if getMemberByName then
-                    _classFieldInstatiation = _classFieldInstatiation .. string.format('self.%s = self.__ui:GetTransition("%s");', memberInfo.varName, memberInfo.name);
+                    _classFieldInstatiation = _classFieldInstatiation .. string.format('self.%s = self:GetTransition("%s");', memberInfo.varName, memberInfo.name);
                 else
-                    _classFieldInstatiation = _classFieldInstatiation .. string.format('self.%s = self.__ui:GetTransitionAt("%s");', memberInfo.varName, memberInfo.index);
+                    _classFieldInstatiation = _classFieldInstatiation .. string.format('self.%s = self:GetTransitionAt("%s");', memberInfo.varName, memberInfo.index);
                 end
             end
         end
@@ -252,12 +142,12 @@ function genCode(handler)
         local classInfo = classes[i]
         _bindStatement = _bindStatement .. "\t";
 
-        if (key_wrapper_namespace ~= "") then
-            _bindStatement = _bindStatement .. string.format('%sUIObjectFactory.SetPackageItemExtension(%s.URL, typeof(%s));', key_wrapper_namespace .. ".", classInfo.className, classInfo.className);
-        else
-            _bindStatement = _bindStatement .. string.format('UIObjectFactory.SetPackageItemExtension(%s.URL,typeof(%s));', classInfo.className, classInfo.className);
-        end
-
+        _bindStatement = _bindStatement .. string.format('fgui.register_extension(%s.URL, %s);', classInfo.className, classInfo.className);
+        -- if (key_wrapper_namespace ~= "") then
+        --     _bindStatement = _bindStatement .. string.format('%sUIObjectFactory.SetPackageItemExtension(%s.URL, %s);', key_wrapper_namespace .. ".", classInfo.className, classInfo.className);
+        -- else
+        --     _bindStatement = _bindStatement .. string.format('UIObjectFactory.SetPackageItemExtension(%s.URL, %s);', classInfo.className, classInfo.className);
+        -- end
 
     end
     binderTemplateTxt = string.gsub(binderTemplateTxt, "$bindStatement", _bindStatement);
@@ -281,4 +171,6 @@ function genCode(handler)
     end
 end
 
-
+function onDestroy()
+    -------do cleanup here-------
+end

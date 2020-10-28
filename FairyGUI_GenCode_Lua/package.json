@@ -1,10 +1,10 @@
 {
-	"name": "com.northwolf.plugin.gencode",
-	"displayName": "FairyGUI GenCode Lua",
+	"name": "GenCode Lua",
+	"displayName": "FairyGUI Editor GenCode Lua",
 	"description": "Publish lua code for game engine.",
 	"version": "1.0.0",
 	"author": {
-		"name": "Author: northwolf.github.io"
+		"name": "Author: yancy"
 	},
 	"icon": "icon.png",
 	"main": "main.lua"
